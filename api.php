@@ -4449,10 +4449,10 @@ function queryApiAi($command) {
 	try {
 		$lang = getDefaultLocale();
 		$url = 'https://api.api.ai/v1/query?v=20150910&query=' . urlencode($command) . '&lang='.$lang.'&sessionId=' . substr($_SESSION['apiToken'],0,36);
-		$response = curlGet($url, ['Authorization: Bearer ' . $d], 3);
+		$response = curlGet($url, ['Authorization: Bearer ' . $d], 30);
 		if ($response == null) {
 			write_log("Null response received from API.ai, re-submitting.", "WARN");
-			$response = curlGet($url, ['Authorization: Bearer ' . $d], 10);
+			$response = curlGet($url, ['Authorization: Bearer ' . $d], 60);
 		}
 		$request = json_decode($response, true);
 		$request = array_filter_recursive($request);
