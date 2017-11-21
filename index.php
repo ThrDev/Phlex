@@ -109,7 +109,7 @@
         var height = window.innerHeight
             || document.documentElement.clientHeight
             || document.body.clientHeight;
-        document.getElementById("holder").setAttribute("src","https://phlexchat.com/img.php?random&width="+width+"&height="+height);
+        document.getElementById("holder").setAttribute("src","https://picsum.photos/"+width+"/"+height+"?random&blur&v=" + (Math.floor(Math.random()*(1084))));
 
         function loopMessages() {
             $.each(messageArray, function(i,item) {

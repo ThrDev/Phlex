@@ -585,7 +585,7 @@ function setBackground() {
     //Add your images, we'll set the path in the next step
 	console.log("Caching background image.");
     var image = new Image();
-    image.src = "https://phlexchat.com/img.php?random&height="+$(document).height()+"&width="+$(document).width()+"&v=" + (Math.floor(Math.random()*(1084)));
+    image.src = "https://picsum.photos/"+$(document).width()+"/"+$(document).height()+"?random&blur&v=" + (Math.floor(Math.random()*(1084)));
     setTimeout
     (
         function()
@@ -1167,7 +1167,7 @@ function setWeather() {
 
 function imgError(image) {
     image.onerror = "";
-    image.src = "https://phlexchat.com/img.php?random&height="+$(document).height()+"&width="+$(document).width()+"&v=" + (Math.floor(Math.random()*(1084)));
+    image.src = "https://picsum.photos/"+$(document).width()+"/"+$(document).height()+"?random&blur&v=" + (Math.floor(Math.random()*(1084)));
     return true;
 }
 
