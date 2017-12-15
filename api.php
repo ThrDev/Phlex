@@ -4003,7 +4003,7 @@ function fetchTMDBInfo($title = false, $tmdbId = false, $tvdbId = false, $type =
 				if ($newScore == 1) break;
 			}
 		}
-		if (empty($winner) && count($results['results'])) $winner = $results[0];
+		if ((empty($winner) || is_null($winner)) && count($results['results'])) $winner = $results[0];
 		write_log("Winner? " . json_encode($winner));
 		$type = $type ? $type : $winner['media_type'] ?? false;
 		$tmdbId = $winner['id'] ?? false;
