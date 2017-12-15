@@ -4083,6 +4083,8 @@ function couchDownload($command) {
 	foreach ($body['movies'] as $movie) {
 		$newScore = similarity(cleanCommandString($movie['titles'][0]), $command);
 		write_log("Similarity: " . $newScore);
+		write_log("Score: " . $score);
+		write_log("Difference: " . $newScore > $score);
 		if ($newScore > $score) {
 			write_log("Highest Match: " . $movie['titles'][0] . " Score: " . $newScore, "INFO");
 			$winner = $movie;
