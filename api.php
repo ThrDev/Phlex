@@ -4085,6 +4085,7 @@ function couchDownload($command) {
 		write_log("Similarity: " . $newScore);
 		write_log("Score: " . $score);
 		write_log("Difference: " . $newScore > $score);
+		write_log("String Comparison: " . cleanCommandString($movie['titles'][0]) . " | " . $command);
 		if ($newScore > $score) {
 			write_log("Highest Match: " . $movie['titles'][0] . " Score: " . $newScore, "INFO");
 			$winner = $movie;
