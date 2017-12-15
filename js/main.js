@@ -622,20 +622,18 @@ function scaleElements() {
 function setBackground() {
 	//Add your images, we'll set the path in the next step
 	console.log("Caching background image.");
-    var image = new Image();
+	var image = new Image();
     image.src = "https://picsum.photos/"+$(document).width()+"/"+$(document).height()+"?random&blur&v=" + (Math.floor(Math.random()*(1084)));
-    setTimeout
-    (
-        function()
-        {
-            if ( !image.complete || !image.naturalWidth )
-            {
-                image.src = "./img/bg/"+~~(Math.random() * 10)+".jpg";
-                console.log("Returning cached image: " + image.src);
-            }
-        },
-        1000
-    );
+	setTimeout
+	(
+		function () {
+			if (!image.complete || !image.naturalWidth) {
+				image.src = "./img/bg/" + ~~(Math.random() * 10) + ".jpg";
+				console.log("Returning cached image: " + image.src);
+			}
+		},
+		1000
+	);
 
 	$('#bgwrap').append("<div class='bg'></div>");
 	bgs = $('.bg');
@@ -1206,9 +1204,9 @@ function setWeather() {
 }
 
 function imgError(image) {
-    image.onerror = "";
+	image.onerror = "";
     image.src = "https://picsum.photos/"+$(document).width()+"/"+$(document).height()+"?random&blur&v=" + (Math.floor(Math.random()*(1084)));
-    return true;
+	return true;
 }
 
 function createStaticDevice(id, name, uri, product,broadcast) {
