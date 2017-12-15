@@ -2,27 +2,29 @@
 
 use Cz\Git\GitRepository;
 
-
 require_once dirname(__FILE__) . '/vendor/autoload.php';
 
 // Checks whether an API Token exists for the current user, generates and saves one if none exists.
 // Returns generated or existing API Token.
 function checkSetUser(Array $userData) {
 	// Check that we have generated an API token for our user, create and save one if none exists
-	$userName = $userData['plexUserName'];
-	$GLOBALS['config'] = new Config_Lite(dirname(__FILE__) . '/config.ini.php');
+	$userName = strtolower(trim($userData['plexUserName']));
 	$apiToken = false;
 	foreach ($GLOBALS['config'] as $section => $user) {
-		if ($section != "general") {
-			if (($userName == urlencode($user['plexUserName'])) || ($userName == urlencode($user['email']))) {
+		if ($section !== "general") {
+			$checkName = strtolower(trim($user['plexUserName']));
+			$checkEmail = strtolower(trim($user['plexEmail']));
+			write_log("Checking $userName against $checkName and $checkEmail");
+			if (($userName === $checkName) || ($userName === $checkEmail)) {
 				write_log("Found matching token for " . $user['plexUserName'] . ".");
-				$apiToken = $user['apiToken'] ?? false;
+				$apiToken = $user['apiToken'];
 				break;
 			}
 		}
 	}
 
 	if (!$apiToken) {
+		dumpRequest();
 		write_log("NO API TOKEN FOUND, generating one for " . $userName, "INFO");
 		$apiToken = randomToken(21);
 		$userData['apiToken'] = $apiToken;
@@ -48,15 +50,24 @@ function validateToken($token) {
 	foreach ($config as $section => $setting) {
 		$checkToken = false;
 		if ($section != "general") {
-			if (isset($setting['apiToken'])) $checkToken = $setting['apiToken'];
+			$checkToken = $setting['apiToken'] ?? false;
 			if (trim($checkToken) == trim($token)) {
-				$user = ['string' => $section, 'plexUserName' => $setting['plexUserName'], 'plexToken' => $setting['plexToken'], "plexEmail" => $setting['plexEmail'], "plexAvatar" => $setting['plexAvatar'], "plexCred" => $setting['plexCred'], "apiToken" => $setting['apiToken'],];
+				$user = [
+					'string' => $section,
+					'plexUserName' => $setting['plexUserName'],
+					'plexToken' => $setting['plexToken'],
+					"plexEmail" => $setting['plexEmail'],
+					"plexAvatar" => $setting['plexAvatar'],
+					"plexCred" => $setting['plexCred'],
+					"apiToken" => $setting['apiToken']
+				];
 				return $user;
 			}
 		}
 	}
-
-	write_log("ERROR, api token not recognized!", "ERROR");
+	$caller = getCaller("validateToken");
+	write_log("ERROR, api token not recognized, called by $caller.", "ERROR");
+	dumpRequest();
 	return false;
 }
 
@@ -73,6 +84,47 @@ function cleanCommandString($string) {
 	}
 	$result = implode(" ", $stringArray);
 	return $result;
+}
+
+function TTS($text) {
+	$res = false;
+	$words = substr($text, 0, 2000);
+	write_log("Building speech for '$words'");
+	$words = urlencode($words);
+	$file  = md5($words);
+	$cacheDir = file_build_path(dirname(__FILE__), "img", "cache");
+	checkCache($cacheDir);
+
+	$payload = [
+		"engine"=>"Google",
+		"data"=>[
+			"text"=>$text,
+			"voice"=>"en-US"
+		]
+	];
+	$url = "https://soundoftext.com/api/sounds";
+	$ch = curl_init($url);
+	curl_setopt_array($ch, array(
+		CURLOPT_POST => TRUE,
+		CURLOPT_RETURNTRANSFER => TRUE,
+		CURLOPT_HTTPHEADER => array(
+			'Content-Type: application/json'
+		),
+		CURLOPT_POSTFIELDS => json_encode($payload)
+	));
+
+	$mp3 = curl_exec($ch);
+	$data = json_decode($mp3,true);
+	if ($data['success']) {
+		$id = $data['id'];
+		$url = "https://soundoftext.com/api/sounds/$id";
+		$data = curlGet($url);
+		if ($data) {
+			$response = json_decode($data,true);
+			if (isset($response['location'])) return $response['location'];
+		}
+	}
+	return false;
 }
 
 function flattenXML($xml) {
@@ -207,10 +259,7 @@ function cacheImage($url, $image = false) {
 	try {
 		$URL_REF = $_SESSION['publicAddress'] ?? fetchUrl(true);
 		$cacheDir = file_build_path(dirname(__FILE__), "img", "cache");
-		if (!file_exists($cacheDir)) {
-			write_log("No cache directory found, creating.", "INFO");
-			mkdir($cacheDir, 0777, true);
-		}
+		checkCache($cacheDir);
 		if ($url) {
 			$cached_filename = md5($url);
 			$files = glob($cacheDir . '/*.{jpg,jpeg,png,gif}', GLOB_BRACE);
@@ -261,11 +310,22 @@ function cacheImage($url, $image = false) {
 	return $path;
 }
 
+function checkCache($cacheDir) {
+	if (!file_exists($cacheDir)) {
+		write_log("No cache directory found, creating.", "INFO");
+		mkdir($cacheDir, 0777, true);
+	}
+}
+
 function setStartUrl() {
 	$fileOut = dirname(__FILE__) . "/manifest.json";
 	$file = (file_exists($fileOut)) ? $fileOut : dirname(__FILE__) . "/manifest_template.json";
 	$json = json_decode(file_get_contents($file), true);
 	$url = 'https://' . $_SERVER['HTTP_HOST'] . $_SERVER['REQUEST_URI'];
+	$url = parse_url($url);
+	$url = $url['scheme']."://". $url['host'] . $url['path'];
+	$url = str_replace("\api.php","",$url);
+
 	if ($json['start_url'] !== $url) {
 		$json['start_url'] = $url;
 		file_put_contents($fileOut, json_encode($json, JSON_PRETTY_PRINT));
@@ -361,20 +421,21 @@ function curlPost($url, $content = false, $JSON = false, Array $headers = null) 
 // Write log information to $filename
 // Auto rotates files larger than 2MB
 function write_log($text, $level = null, $caller = false) {
-	$filename = file_build_path(dirname(__FILE__), 'logs', "Phlex.log");
-	if ($level === null) {
-		$level = 'DEBUG';
-	}
+	$filename = file_build_path(dirname(__FILE__), 'logs', "Phlex.log.php");
+	if ($level === null) $level = 'DEBUG';
+	if (isset($_SESSION) && $level === 'DEBUG' && !$_SESSION['Debug']) return;
 	if (isset($_GET['pollPlayer']) || !file_exists($filename) || (trim($text) === "")) return;
 	$caller = $caller ? $caller : getCaller();
 	$text = '[' . date(DATE_RFC2822) . '] [' . $level . '] [' . $caller . "] - " . trim($text) . PHP_EOL;
 
-	if (filesize($filename) > 2 * 1024 * 1024) {
+	if (filesize($filename) > 10 * 1024 * 1024) {
 		$filename2 = "$filename.old";
 		if (file_exists($filename2)) unlink($filename2);
 		rename($filename, $filename2);
 		touch($filename);
 		chmod($filename, 0666);
+		$authString = "; <?php die('Access denied'); ?>".PHP_EOL;
+		file_put_contents($filename,$authString);
 	}
 	if (!is_writable($filename)) die;
 	if (!$handle = fopen($filename, 'a+')) die;
@@ -407,7 +468,7 @@ function isDomainAvailible($domain) {
 
 function logUpdate(array $log) {
 	$config = new Config_Lite('config.ini.php');
-	$filename = file_build_path(dirname(__FILE__), 'logs', "Phlex_update.log");
+	$filename = file_build_path(dirname(__FILE__), 'logs', "Phlex_update.log.php");
 	$data['installed'] = date(DATE_RFC2822);
 	$data['commits'] = $log;
 	$config->set("general", "lastUpdate", $data['installed']);
@@ -432,9 +493,12 @@ function logUpdate(array $log) {
 
 function readUpdate() {
 	$log = false;
-	$filename = file_build_path(dirname(__FILE__), 'logs', "Phlex_update.log");
+	$filename = file_build_path(dirname(__FILE__), 'logs', "Phlex_update.log.php");
 	if (file_exists($filename)) {
-		$log = json_decode(file_get_contents($filename), true) ?? [];
+		$authString = "'; <?php die('Access denied'); ?>".PHP_EOL;
+		$file = file_get_contents($filename);
+		$file = str_replace($authString,"",$file);
+		$log = json_decode($file, true) ?? [];
 	}
 	return $log;
 }
@@ -478,15 +542,21 @@ function getCaller($custom = "foo") {
 
 // Save the specified configuration file using CONFIG_LITE
 function saveConfig(Config_Lite $inConfig) {
+	$configFile = file_build_path(dirname(__FILE__), "config.ini.php");
+	if (!is_writable($configFile)) write_log("Configuration file is NOT writeable.","ERROR");
 	try {
 		$inConfig->save();
 	} catch (Config_Lite_Exception $e) {
-		echo "\n" . 'Exception Message: ' . $e->getMessage();
-		write_log('Error saving configuration.', 'ERROR');
+		$msg = $e->getMessage();
+		write_log("Error saving configuration: $msg", 'ERROR');
 	}
 	$configFile = file_build_path(dirname(__FILE__), "config.ini.php");
 	$cache_new = "'; <?php die('Access denied'); ?>"; // Adds this to the top of the config so that PHP kills the execution if someone tries to request the config-file remotely.
-	$cache_new .= file_get_contents($configFile);
+	if (file_exists($configFile)) {
+		$cache_new .= file_get_contents($configFile);
+	} else {
+		$fh = fopen($configFile, 'w') or write_log("Can't create config file!","ERROR");
+	}
 	if (file_put_contents($configFile, $cache_new)) write_log("Config saved successfully by " . getCaller("saveConfig")); else write_log("Config save failed!", "ERROR");
 
 }
@@ -583,8 +653,8 @@ function session_started() {
 }
 
 // Check the validity of a URL response
-function check_url($url, $post = false) {
-	write_log("Checking URL: " . $url);
+function check_url($url, $post = false,$device=false) {
+	if (!$device) write_log("Checking URL: " . $url); else write_log("Checking URL for device $device");
 	$certPath = file_build_path(dirname(__FILE__), "cert", "cacert.pem");
 	$ch = curl_init($url);
 	curl_setopt($ch, CURLOPT_RETURNTRANSFER, TRUE);
@@ -637,6 +707,7 @@ function fetchCastDevices() {
 		$deviceOut['product'] = 'cast';
 		$deviceOut['id'] = $id;
 		$deviceOut['token'] = 'none';
+		$ip = $value['ip'];
 		$deviceOut['uri'] = "https://" . $value['ip'] . ":" . $value['port'];
 		array_push($returns, $deviceOut);
 	}
@@ -675,7 +746,7 @@ function signIn($credString) {
 }
 
 function checkSetDeviceID() {
-	$config = new Config_Lite('config.ini.php');
+	$config = new Config_Lite('config.ini.php', LOCK_EX);
 	$deviceID = $config->get('general', 'deviceID', false);
 	if (!$deviceID) {
 		$deviceID = randomToken(12);
@@ -693,10 +764,11 @@ function fetchDirectory($id = 1) {
 }
 
 function setDefaults() {
+	$GLOBALS['config'] = new Config_Lite(dirname(__FILE__) . '/config.ini.php', LOCK_EX);
 	ini_set("log_errors", 1);
 	ini_set('max_execution_time', 300);
 	error_reporting(E_ERROR);
-	$errorLogPath = file_build_path(dirname(__FILE__), 'logs', "Phlex_error.log");
+	$errorLogPath = file_build_path(dirname(__FILE__), 'logs', "Phlex_error.log.php");
 	ini_set("error_log", $errorLogPath);
 	date_default_timezone_set((date_default_timezone_get() ? date_default_timezone_get() : "America/Chicago"));
 }
@@ -707,19 +779,38 @@ function checkFiles() {
 
 	$logDir = file_build_path(dirname(__FILE__), "logs");
 
-	$oldLogPath = file_build_path($logDir, "PhlexUpdate.log");
-	$logPath = file_build_path($logDir, "Phlex.log");
-	$errorLogPath = file_build_path($logDir, "Phlex_error.log");
-	$updateLogPath = file_build_path($logDir, "Phlex_update.log");
+	$logPath = file_build_path($logDir, "Phlex.log.php");
+	$errorLogPath = file_build_path($logDir, "Phlex_error.log.php");
+	$updateLogPath = file_build_path($logDir, "Phlex_update.log.php");
 
-	if (file_exists($oldLogPath)) unlink($oldLogPath);
+	$old = [
+		file_build_path($logDir, "PhlexUpdate.log"),
+		file_build_path($logDir, "Phlex.log"),
+		file_build_path($logDir, "Phlex.log.old"),
+		file_build_path($logDir, "Phlex_error.log"),
+		file_build_path($logDir, "Phlex_update.log")
+	];
+
+	foreach ($old as $delete) {
+		if (file_exists($delete)) {
+			write_log("Deleting insecure file $delete","INFO");
+			unlink($delete);
+		}
+	}
+
 	$files = [$logPath, $errorLogPath, $updateLogPath, 'config.ini.php', 'commands.php'];
 
+	$secureString = "'; <?php die('Access denied'); ?>";
+	if (!mkdir($logPath,0777,true)) {
+		$message = "Unable to create log folder directory, please check permissions and try again.";
+		array_push($messages,$message);
+	}
 	foreach ($files as $file) {
 		if (!file_exists($file)) {
 			mkdir(dirname($file), 0777, true);
 			touch($file);
 			chmod($file, 0777);
+			file_put_contents($file,$secureString);
 		}
 		if ((file_exists($file) && (!is_writable(dirname($file)) || !is_writable($file))) || !is_writable(dirname($file))) { // If file exists, check both file and directory writeable, else check that the directory is writeable.
 			$message = 'Either the file ' . $file . ' and/or it\'s parent directory is not writable by the PHP process. Check the permissions & ownership and try again.';
@@ -870,7 +961,7 @@ function listLocales() {
 					$json = json_decode($json, true);
 					if ($json) {
 						$selected = ($_SESSION["appLanguage"] == $locale ? 'selected' : '');
-						$list .= "<option value='$locale' id='$locale' $selected>$localeName</option>" . PHP_EOL;
+						$list .= "<option data-value='$locale' id='$locale' $selected>$localeName</option>" . PHP_EOL;
 					}
 				}
 			}
@@ -1809,9 +1900,12 @@ function checkUpdates($install = false) {
 				$revision = $repo->getRev();
 				$logHistory = readUpdate();
 				if ($revision) {
-					$config = new Config_Lite('config.ini.php');
-					$config->set('general', 'revision', $revision);
-					saveConfig($config);
+					$config = new Config_Lite('config.ini.php', LOCK_EX);
+					$old = $config->get('general','revision',false);
+					if ($old !== $revision) {
+						$config->set('general', 'revision', $revision);
+						saveConfig($config);
+					}
 				}
 				if (count($logHistory)) $installed = $logHistory[0]['installed'];
 				$header = '<div class="cardHeader">
@@ -1926,7 +2020,7 @@ function getUrl($url) {
 	return $content;
 }
 
-function tail($filename, $lines = 50, $buffer = 4096) {
+function tailFile($filename, $lines = 50, $buffer = 4096) {
 	if (!is_file($filename)) {
 		return false;
 	}
@@ -1950,10 +2044,13 @@ function tail($filename, $lines = 50, $buffer = 4096) {
 		$output = substr($output, strpos($output, "\n") + 1);
 	}
 	fclose($f);
+	$output = str_replace("'; <?php die('Access denied'); ?>".PHP_EOL,"",$output);
 	return $output;
 }
 
 function formatLog($logData) {
+	$authString = "'; <?php die('Access denied'); ?>".PHP_EOL;
+	$logData = str_replace($authString,"",$logData);
 	$lines = array_reverse(explode("\n", $logData));
 	$JSON = false;
 	$records = [];
@@ -2057,4 +2154,33 @@ function fetchUrl($https = false) {
 	$actual_link = $protocol;
 	foreach ($url as $part) $actual_link .= $part . "/";
 	return $actual_link;
+}
+
+function dumpRequest() {
+	$data = [
+		"Request Method" => $_SERVER['REQUEST_METHOD'],
+		"Request URI" => $_SERVER['REQUEST_URI'],
+		"Server Protocol" => $_SERVER['SERVER_PROTOCOL'],
+		"Request Data"=>$request = explode("/", substr(@$_SERVER['PATH_INFO'], 1))
+	];
+
+	foreach ($_SERVER as $name => $value) {
+		if (preg_match('/^HTTP_/',$name)) {
+			// convert HTTP_HEADER_NAME to Header-Name
+			$name = strtr(substr($name,5),'_',' ');
+			$name = ucwords(strtolower($name));
+			$name = strtr($name,' ','-');
+			// add to list
+			$data[$name] = $value;
+		}
+	}
+	if ($_SERVER['request_METHOD'] !== 'PUT') {
+		$data['Request body'] = file_get_contents('php://input');
+	} else {
+		parse_str(file_get_contents("php://input"),$post_vars);
+		foreach($post_vars as $key=>$value) {
+			$data[$key] = $value;
+		}
+	}
+	write_log("Request dump!!: ".json_encode($data),"WARN");
 }
