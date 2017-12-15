@@ -422,6 +422,9 @@ function curlPost($url, $content = false, $JSON = false, Array $headers = null) 
 // Auto rotates files larger than 2MB
 function write_log($text, $level = null, $caller = false) {
 	$filename = file_build_path(dirname(__FILE__), 'logs', "Phlex.log.php");
+	if (!file_exists($filename)) {
+	    touch($filename);
+    }
 	if ($level === null) $level = 'DEBUG';
 	if (isset($_SESSION) && $level === 'DEBUG' && !$_SESSION['Debug']) return;
 	if (isset($_GET['pollPlayer']) || !file_exists($filename) || (trim($text) === "")) return;
@@ -437,10 +440,10 @@ function write_log($text, $level = null, $caller = false) {
 		$authString = "; <?php die('Access denied'); ?>".PHP_EOL;
 		file_put_contents($filename,$authString);
 	}
-	if (!is_writable($filename)) die;
-	if (!$handle = fopen($filename, 'a+')) die;
-	if (fwrite($handle, $text) === FALSE) die;
-	fclose($handle);
+    if (!is_writable($filename)) return;
+    if (!$handle = fopen($filename, 'a+')) return;
+    if (fwrite($handle, $text) === FALSE) return;
+    fclose($handle);
 }
 
 function isDomainAvailible($domain) {
@@ -801,10 +804,17 @@ function checkFiles() {
 	$files = [$logPath, $errorLogPath, $updateLogPath, 'config.ini.php', 'commands.php'];
 
 	$secureString = "'; <?php die('Access denied'); ?>";
-	if (!mkdir($logPath,0777,true)) {
-		$message = "Unable to create log folder directory, please check permissions and try again.";
-		array_push($messages,$message);
-	}
+    if (!file_exists($logPath)) {
+        if (!mkdir($logPath, 0777, true)) {
+            $message = "Unable to create log folder directory, please check permissions and try again.";
+            $error = [
+                'title' => 'Permission error.',
+                'message' => $message,
+                'url' => false
+            ];
+            array_push($messages, $error);
+        }
+    }
 	foreach ($files as $file) {
 		if (!file_exists($file)) {
 			mkdir(dirname($file), 0777, true);
